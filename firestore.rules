@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // Guru = akun yang punya dokumen guru/{uid} (dibuat manual di Console, lihat PANDUAN).
+    function isGuru() {
+      return request.auth != null
+        && exists(/databases/$(db)/documents/guru/$(request.auth.uid));
+    }
+    // Siswa = akun yang uid-nya tercatat pada siswa/{sid}.
+    function isSiswa(sid) {
+      return request.auth != null
+        && exists(/databases/$(db)/documents/siswa/$(sid))
+        && get(/databases/$(db)/documents/siswa/$(sid)).data.uid == request.auth.uid
+        && get(/databases/$(db)/documents/siswa/$(sid)).data.aktif == true;
+    }
+
+    match /guru/{u} {
+      allow read: if request.auth != null && request.auth.uid == u;
+      allow write: if false;
+    }
+
+    // Daftar nama untuk halaman login (tanpa PIN, tanpa data lain).
+    match /publik/{d} {
+      allow read: if true;
+      allow write: if isGuru();
+    }
+
+    match /siswa/{sid} {
+      allow read: if isGuru() || isSiswa(sid);
+      allow write: if isGuru();
+    }
+
+    // PIN hanya terbaca oleh guru.
+    match /pin/{sid} {
+      allow read, write: if isGuru();
+    }
+
+    // Kemajuan & hasil: id dokumen = {sid}_{mapel}
+    match /progres/{pid} {
+      allow read: if isGuru() || isSiswa(pid.split('_')[0]);
+      allow create, update: if isSiswa(pid.split('_')[0])
+        && request.resource.data.keys().hasOnly(['sid','mapel','name','updatedAt','json'])
+        && request.resource.data.json is string
+        && request.resource.data.json.size() < 900000
+        && request.resource.data.sid == pid.split('_')[0];
+      allow delete: if isGuru();
+    }
+  }
+}
